@@ -1,0 +1,31 @@
+[project]
+name = "Health Insurance Cross Sell"
+slug = "06_health_insurance_cross_sell"
+family = "health_cross_sell"
+problem_type = "ranking"
+business_goal = "Rank customers by propensity to buy vehicle insurance to optimise sales contacts."
+primary_metric = "ROC AUC, average_precision, precision@20000, lift@20000"
+
+[data]
+train_file = "data/raw/train.csv"
+test_file = "data/raw/test.csv"
+sample_submission_file = "data/raw/sample_submission.csv"
+target = "Response"
+positive_label = 1
+id_columns = ["id"]
+drop_columns = []
+
+[modeling]
+class_weight = "balanced"
+test_size = 0.2
+random_state = 42
+max_iter = 1000
+model_file = "models/model.joblib"
+
+[evaluation]
+top_k = [5000, 10000, 20000]
+
+[tuning]
+n_iter = 20
+cv_folds = 5
+scoring = "roc_auc"
