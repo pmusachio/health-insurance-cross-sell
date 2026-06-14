@@ -1,245 +1,108 @@
-# Health Insurance Cross Sell — Propensity Ranking Model
+# Health Insurance Cross-Sell — Propensity Ranking
 
-> **Kaggle competition project** — rank customers by their likelihood to purchase vehicle insurance, maximising the number of interested buyers contacted within a fixed sales capacity.
-
----
-
-## Table of Contents
-
-1. [Business Problem](#business-problem)
-2. [Dataset](#dataset)
-3. [Solution Strategy](#solution-strategy)
-4. [Key Insights](#key-insights)
-5. [Model Performance](#model-performance)
-6. [Repository Structure](#repository-structure)
-7. [How to Run](#how-to-run)
-8. [Technologies](#technologies)
-9. [Author](#author)
-
----
+> Imbalanced classification · Propensity ranking · Lift and cumulative gains
 
 ## Business Problem
 
-An insurance company that currently provides health insurance wants to **cross-sell vehicle insurance** to its existing customers. The sales team has a limited number of calls they can make per campaign period. Calling random customers is inefficient — the conversion rate is low.
+A health-insurance company wants to cross-sell vehicle insurance to its existing customers.
+The sales team can only make a fixed number of calls per campaign, and calling at random is
+inefficient because the base conversion rate is low (~12%).
 
-**Goal:** build a propensity model that assigns a score to each customer. When the list is sorted by score descending, the sales team contacts the most likely buyers first. This is a **ranking problem**, not just a classification problem.
+The decision the model informs is **who to call first**: it scores every customer by their
+propensity to buy and the team works the list top-down until capacity runs out. This is a
+**ranking** problem, not a yes/no classification — the absolute probability matters less than
+the ordering. The cost of error is asymmetric: a false positive wastes one call, while a false
+negative leaves a willing buyer uncontacted, forfeiting a sale. Because outreach capacity is the
+binding constraint, the model is optimized and judged on **lift at capacity**, not accuracy.
 
-**Business impact metric:** *lift at 20 000 contacts*. If the model achieves lift = 3, contacting the top 20 000 customers is three times more efficient than calling a random sample of the same size.
-
----
+A plain heuristic ("call everyone with a damaged vehicle who is not already insured") was
+rejected: it captures the strongest signals but ignores their interaction with premium, age,
+channel and tenure, which the model exploits to order customers within those coarse buckets.
 
 ## Dataset
 
-| Column | Type | Description |
-|---|---|---|
-| id | int | Unique customer identifier |
-| Gender | str | Male / Female |
-| Age | int | Customer age in years |
-| Driving_License | int | 1 = has licence, 0 = does not |
-| Region_Code | float | Region of the customer |
-| Previously_Insured | int | 1 = already has vehicle insurance |
-| Vehicle_Age | str | < 1 Year / 1-2 Year / > 2 Years |
-| Vehicle_Damage | str | Yes / No — history of vehicle damage |
-| Annual_Premium | float | Annual premium paid for health insurance |
-| Policy_Sales_Channel | float | Channel through which the policy was sold |
-| Vintage | int | Days since the customer joined |
-| Response | int | **Target** — 1 = interested in vehicle insurance |
+[Health Insurance Cross-Sell Prediction](https://www.kaggle.com/datasets/anmolkumar/health-insurance-cross-sell-prediction)
 
-- **Train:** 381 109 rows, 12 columns
-- **Test:** 127 037 rows, 11 columns (no Response)
-- **Positive rate:** ~12.3 %
-
----
+| Property | Value |
+|----------|-------|
+| Rows | 381,109 customers |
+| Target | `Response` (1 = interested in vehicle insurance) |
+| Positive rate | 12.3% (imbalanced) |
+| Key features | `Previously_Insured`, `Vehicle_Damage`, `Vehicle_Age`, `Age`, `Annual_Premium`, `Policy_Sales_Channel`, `Vintage` |
 
 ## Solution Strategy
 
-The project follows a CRISP-DM cycle with the following 10 steps:
+1. **Acquisition** — pull the dataset from Kaggle on demand; a versioned stratified sample backs an offline run.
+2. **Leakage control** — every feature is known before the customer is contacted, so there is no target leakage; `id` is dropped from the feature set and `Response` is the target.
+3. **Encoding** — `Gender` and `Vehicle_Damage` map to binary, `Vehicle_Age` stays categorical; all inside the model `Pipeline` (a custom first step) so serving reuses the exact transform.
+4. **Imbalance** — handled with `class_weight="balanced"` applied only inside the fitted folds, never by resampling the holdout.
+5. **Model selection** — `StratifiedKFold` cross-validation compares a logistic baseline, random forest and histogram gradient boosting on ROC AUC; the winner is tuned with `RandomizedSearchCV`.
+6. **Evaluation** — ROC AUC and average precision on a stratified holdout, plus precision/lift at fixed contact capacities and ROC AUC by segment.
 
-1. **Business understanding** — define success metrics (ROC AUC, average precision, lift@20k)
-2. **Data understanding** — schema, missing values, target distribution
-3. **Exploratory analysis** — 4 business hypotheses tested and confirmed/refuted
-4. **Feature engineering** — encode vehicle age, map damage and gender to numeric
-5. **Preprocessing pipeline** — `ColumnTransformer` with median imputation + standard scaling for numeric, one-hot encoding for categorical
-6. **Baseline model** — Logistic Regression with balanced class weights
-7. **Model comparison** — compare LogisticRegression, RandomForest, and LightGBM via 5-fold stratified cross-validation
-8. **Hyperparameter tuning** — `RandomizedSearchCV` (20 iterations) on the best model
-9. **Business evaluation** — cumulative gain curve and lift curve; translate metrics into revenue impact
-10. **Deployment** — FastAPI endpoint + Google Sheets automation for the sales team
+## Top Insights & Hypotheses
 
----
+- **Already-insured customers almost never convert.** `Previously_Insured` is by far the strongest feature (permutation importance 0.18); it alone explains most of the ranking power.
+- **Past vehicle damage signals intent.** `Vehicle_Damage` is the second strongest driver — customers who have experienced damage are far more receptive.
+- **The model is sharpest where the answer is "no".** ROC AUC is 0.93 on the no-damage segment but only 0.69 on the damaged segment, where buyers and non-buyers look more alike — a known limitation, flagged in Next Steps.
+- **Newer vehicles and younger customers skew negative**, consistent with lower perceived risk.
 
-## Key Insights
+## Model
 
-- **Customers with vehicle damage history are ~5x more likely to be interested** — the most predictive binary signal in the dataset.
-- **Previously insured customers show near-zero interest** — they already have coverage; do not call them.
-- **Middle-aged customers (35-50) show higher propensity** than the very young or very old.
-- **Older vehicles (> 2 years) correlate with higher interest** — owners feel the need to insure ageing assets.
+A histogram gradient boosting classifier (selected by cross-validation, tuned with randomized
+search) inside a `Pipeline` that owns the cleaning and encoding. The logistic baseline sets the
+bar the final model must clear.
 
----
+| Model | CV ROC AUC | Holdout ROC AUC | Holdout AP |
+|-------|-----------:|----------------:|-----------:|
+| Logistic baseline | 0.836 | 0.839 | 0.323 |
+| Random forest | 0.835 | — | — |
+| **Hist gradient boosting (final)** | **0.854** | **0.858** | **0.367** |
 
-## Model Performance
+Tuned parameters: `learning_rate=0.17`, `max_leaf_nodes=127`, `max_depth=4`, `l2_regularization=10`, `max_iter=600`.
 
-> Values below are from the final model (LightGBM tuned, 5-fold CV). Run `make train` to reproduce.
+## Business Results
 
-| Metric | Value |
-|---|---|
-| ROC AUC (CV mean) | ~0.852 |
-| Average Precision (CV mean) | ~0.512 |
-| ROC AUC (test set) | ~0.858 |
-| Precision @ 20 000 | ~0.38 |
-| Lift @ 20 000 | ~3.1 |
+Ranking the holdout by score and contacting top-N customers:
 
-*Contacting the top 20 000 scored customers captures approximately **56 % of all interested buyers** while reaching only 16 % of the customer base.*
+| Contacts | Precision@k | Lift vs random | Interested buyers captured |
+|----------|------------:|---------------:|---------------------------:|
+| 5,000 | 40.4% | 3.30x | 21.6% |
+| 10,000 | 38.0% | 3.10x | 40.6% |
+| 20,000 | 33.6% | 2.74x | 71.9% |
 
----
-
-## Repository Structure
-
-```
-health-insurance-cross-sell/
-├── configs/
-│   └── project.toml          # All project settings
-├── data/
-│   ├── raw/                  # Original Kaggle files (train, test, sample_submission)
-│   ├── interim/              # Intermediate artefacts
-│   └── processed/            # Model predictions
-├── integrations/
-│   └── google_sheets_appscript.gs   # Apps Script for Google Sheets automation
-├── models/                   # Saved model (.joblib)
-├── notebooks/
-│   ├── 00_business_understanding.ipynb
-│   ├── 01_data_understanding.ipynb
-│   ├── 02_exploratory_analysis.ipynb
-│   ├── 03_feature_engineering.ipynb
-│   ├── 04_modeling_and_business_results.ipynb
-│   └── 05_deployment_and_consumption.ipynb
-├── reports/
-│   ├── figures/              # Plots saved during notebook execution
-│   └── metrics.json          # Final metrics produced by `make train`
-├── scripts/
-│   ├── sample_api_request.py
-│   └── score_to_sheets.py    # Automated Python -> Google Sheets scoring
-├── src/
-│   └── health_insurance_cross_sell/
-│       ├── api.py            # FastAPI prediction endpoint
-│       ├── cli.py            # Command-line interface
-│       ├── config.py         # TOML config loader
-│       ├── data.py           # Data loading utilities
-│       ├── features.py       # Feature engineering
-│       └── models.py         # Training, CV, tuning, prediction
-├── tests/
-│   └── test_project_contract.py
-├── Makefile
-├── pyproject.toml
-└── requirements.txt
-```
-
----
+Contacting the top 20,000 ranked customers reaches **71.9% of all interested buyers** at
+**2.74x** the efficiency of random outreach — the team captures roughly three quarters of the
+addressable demand while calling a fraction of the base.
 
 ## How to Run
 
-### Option A — Google Colab (recommended for quick exploration)
+1. **Clone**
+   ```
+   git clone https://github.com/pmusachio/health-insurance-cross-sell.git
+   cd health-insurance-cross-sell
+   ```
+2. **Environment**
+   ```
+   python -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+3. **Kaggle access** — place a Kaggle API token at `~/.kaggle/`; the pipeline falls back to the versioned sample if none is present.
+4. **Run the pipeline**
+   ```
+   python -m src.pipeline
+   ```
+5. **Tests**
+   ```
+   pytest tests/
+   ```
+6. **App (local)**
+   ```
+   streamlit run app/streamlit_app.py
+   ```
+7. **Live app** — [huggingface.co/spaces/pmusachio/health-insurance-cross-sell](https://huggingface.co/spaces/pmusachio/health-insurance-cross-sell) — score a customer and explore the campaign view.
 
-1. Open [Google Colab](https://colab.research.google.com/).
-2. Click **File -> Open notebook -> GitHub** and paste this repository URL.
-3. Open any notebook, e.g. `notebooks/04_modeling_and_business_results.ipynb`.
-4. Run the first cell (it will install dependencies and download data).
-5. Execute all cells via **Runtime -> Run all**.
+## Next Steps
 
-> Data files are not committed to the repository. Download them from [Kaggle](https://www.kaggle.com/competitions/health-insurance-cross-sell-prediction) and upload to `data/raw/` inside Colab, or use the `kaggle` CLI in the first notebook cell.
-
----
-
-### Option B — Local (full reproducibility)
-
-**Prerequisites:** Python 3.11+, `make`.
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/your-username/health-insurance-cross-sell.git
-cd health-insurance-cross-sell
-
-# 2. Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -e ".[dev]"
-pip install -r requirements.txt
-
-# 4. Place data files in data/raw/
-#    train.csv, test.csv, sample_submission.csv (from Kaggle)
-
-# 5. Train the model
-make train
-
-# 6. Generate predictions on test set
-make predict
-
-# 7. Run the notebooks interactively
-jupyter lab
-```
-
-After `make train`, `reports/metrics.json` will contain the evaluation results.
-
----
-
-### Option C — API + Google Sheets
-
-**Step 1 — Start the API locally**
-
-```bash
-pip install -r requirements-api.txt
-uvicorn health_insurance_cross_sell.api:app --host 0.0.0.0 --port 8000
-```
-
-**Step 2 — Test the endpoint**
-
-```bash
-python scripts/sample_api_request.py
-```
-
-**Step 3 — Connect Google Sheets**
-
-1. Open your Google Sheet containing customer data.
-2. Go to **Extensions -> Apps Script**.
-3. Paste the contents of `integrations/google_sheets_appscript.gs`.
-4. Set the script property `CROSS_SELL_API_URL` to your deployed API URL.
-5. Save, then click **Cross Sell -> Score customers** from the spreadsheet menu.
-
-**Step 4 — Automated Python scoring (alternative)**
-
-```bash
-# Install gspread + google-auth
-pip install gspread google-auth
-
-# Set up credentials (see scripts/score_to_sheets.py docstring)
-python scripts/score_to_sheets.py \
-  --input data/raw/test.csv \
-  --sheet-id YOUR_GOOGLE_SHEET_ID
-```
-
----
-
-## Technologies
-
-| Layer | Tool |
-|---|---|
-| Data manipulation | pandas, numpy |
-| Machine learning | scikit-learn, LightGBM |
-| Visualisation | matplotlib, seaborn |
-| Model serialisation | joblib |
-| API | FastAPI, uvicorn |
-| Google Sheets | Apps Script (JavaScript) + gspread (Python) |
-| Configuration | TOML (project.toml) |
-| Testing | pytest |
-
----
-
-## Author
-
-**Paulo Musachio**
-Data Scientist
-
-- LinkedIn: [linkedin.com/in/paulomusachio](https://linkedin.com/in/paulomusachio)
-- GitHub: [github.com/paulomusachio](https://github.com/paulomusachio)
+- Improve discrimination on the damaged-vehicle segment (ROC AUC 0.69), where the current features do not separate buyers well; richer behavioural or pricing features are the likely lever.
+- Calibrate probabilities (isotonic or Platt) if the scores are ever used as expected-value inputs rather than purely for ranking; deferred because the campaign decision only needs the ordering.
+- Cost-sensitive thresholding tied to call cost and policy margin would convert lift into an explicit profit-optimal capacity; deferred until per-call economics are available.

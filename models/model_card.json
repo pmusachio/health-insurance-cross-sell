@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0",
+  "trained_at": "2026-06-14T03:38:40+00:00",
+  "dataset": "anmolkumar/health-insurance-cross-sell-prediction",
+  "data_sha256": "3b60d1072851756367817fb155e6e755ffa79509daa806720719bc395dfbea7d",
+  "target": "Response",
+  "problem": "propensity ranking (imbalanced binary classification)",
+  "best_model": "hist_gb",
+  "best_params": {
+    "clf__max_leaf_nodes": 127,
+    "clf__max_iter": 600,
+    "clf__max_depth": 4,
+    "clf__learning_rate": 0.17233109056135082,
+    "clf__l2_regularization": 10.0
+  },
+  "cv_selection": [
+    {
+      "model": "hist_gb",
+      "roc_auc_mean": 0.8536049944700695,
+      "roc_auc_std": 0.0019503128982546402
+    },
+    {
+      "model": "logreg",
+      "roc_auc_mean": 0.8363280740060206,
+      "roc_auc_std": 0.00200181812002054
+    },
+    {
+      "model": "random_forest",
+      "roc_auc_mean": 0.834665487631218,
+      "roc_auc_std": 0.002352384718608383
+    }
+  ],
+  "baseline": {
+    "model": "LogisticRegression (balanced)",
+    "roc_auc": 0.8385122073078418,
+    "average_precision": 0.3226538990947854
+  },
+  "holdout": {
+    "roc_auc": 0.8579009637048407,
+    "average_precision": 0.3670368506181,
+    "base_rate": 0.1226,
+    "capacities": {
+      "5000": {
+        "precision_at_k": 0.4038,
+        "lift_at_k": 3.295,
+        "buyers_captured_pct": 21.6
+      },
+      "10000": {
+        "precision_at_k": 0.3796,
+        "lift_at_k": 3.097,
+        "buyers_captured_pct": 40.6
+      },
+      "20000": {
+        "precision_at_k": 0.336,
+        "lift_at_k": 2.741,
+        "buyers_captured_pct": 71.9
+      }
+    },
+    "roc_auc_by_slice": {
+      "Previously_Insured=0": 0.7066,
+      "Previously_Insured=1": 0.8189,
+      "Vehicle_Damage=0": 0.9314,
+      "Vehicle_Damage=1": 0.6899
+    }
+  },
+  "business": {
+    "headline": "Contacting the top 20,000 ranked customers reaches 71.9% of all interested buyers, 2.741x more efficient than random outreach.",
+    "lift_at_20000": 2.741,
+    "buyers_captured_pct_at_20000": 71.9
+  },
+  "top_features": [
+    {
+      "feature": "Previously_Insured",
+      "importance": 0.18336
+    },
+    {
+      "feature": "Vehicle_Damage",
+      "importance": 0.05941
+    },
+    {
+      "feature": "Policy_Sales_Channel",
+      "importance": 0.03416
+    },
+    {
+      "feature": "Age",
+      "importance": 0.03308
+    },
+    {
+      "feature": "Vehicle_Age",
+      "importance": 0.00988
+    },
+    {
+      "feature": "Region_Code",
+      "importance": 0.00464
+    },
+    {
+      "feature": "Annual_Premium",
+      "importance": 0.0014
+    },
+    {
+      "feature": "Gender",
+      "importance": 0.0005
+    }
+  ]
+}
