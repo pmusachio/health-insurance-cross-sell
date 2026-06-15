@@ -99,7 +99,7 @@ addressable demand while calling a fraction of the base.
    ```
    streamlit run app/streamlit_app.py
    ```
-7. **Live app** — [huggingface.co/spaces/pmusachio/health-insurance-cross-sell](https://huggingface.co/spaces/pmusachio/health-insurance-cross-sell) — score a customer and explore the campaign view.
+7. **Live app** — [health-insurance-cross-sell-p7s9.onrender.com](https://health-insurance-cross-sell-p7s9.onrender.com) — score a customer and explore the campaign view.
 
 ## Next Steps
 
