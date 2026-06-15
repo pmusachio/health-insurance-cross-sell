@@ -12,10 +12,10 @@ venv/
 env/
 .env
 
-# Data: raw is downloaded on demand, processed is a regenerable build artifact.
-# The versioned sample under data/sample/ is intentionally tracked.
+# Data: raw is downloaded on demand; processed/interim are regenerable build artifacts.
 data/raw/
 data/processed/
+data/interim/
 
 # OS / editor
 .DS_Store
